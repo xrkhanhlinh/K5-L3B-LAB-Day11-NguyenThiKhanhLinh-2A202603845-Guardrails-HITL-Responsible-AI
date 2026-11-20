@@ -234,34 +234,23 @@ def is_harder_model() -> bool:
     return any(x in m for x in ("gpt-5.6", "pro", "gemini-3.8", "gemini-3.7"))
 
 
-def setup_api_key():
-    """Ensure keys for Blue (OpenRouter) + Red / Red Advance (OpenAI or Gemini)."""
-    if not get_openrouter_api_key():
-        os.environ["OPENROUTER_API_KEY"] = input(
-            "Enter OpenRouter API Key (Blue): "
-        ).strip()
-    print(f"Blue  — {blue_provider_label()}  [LOCKED]")
-
-    red = get_red_provider()
-    model = get_red_model()
-    if red == PROVIDER_GEMINI:
-        if not os.environ.get("GOOGLE_API_KEY", "").strip():
-            os.environ["GOOGLE_API_KEY"] = input("Enter Google API Key (Red): ").strip()
-        os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "0"
-        print(f"Red / Red Advance  — gemini:{model}")
-    else:
-        if not get_openai_api_key():
-            os.environ["OPENAI_API_KEY"] = input("Enter OpenAI API Key (Red): ").strip()
-        print(f"Red / Red Advance  — openai:{model}")
-
-    print(
-        "Bonus: chọn một — Red tối đa +5 (B1) hoặc Red Advance tối đa +10 (B2)."
-    )
-    if is_harder_model():
-        print(
-            f"Model khó ({model}) — tuỳ chọn; không đổi tên agent. "
-            f"(Gợi ý: {HARD_OPENAI_MODEL} / {HARD_GEMINI_MODEL})"
-        )
+def setup_api_key(parts=None):
+    """Validate only keys needed by the selected checkpoints, without echoing keys."""
+    parts = [2, 3, 4] if parts is None else parts
+    missing = []
+    if 3 in parts:
+        if not get_openrouter_api_key():
+            missing.append("OPENROUTER_API_KEY")
+        print(f"Blue — {blue_provider_label()} [LOCKED]")
+    if 4 in parts:
+        key = "GOOGLE_API_KEY" if red_uses_gemini() else "OPENAI_API_KEY"
+        if not os.environ.get(key, "").strip():
+            missing.append(key)
+        if red_uses_gemini():
+            os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "0"
+        print(f"Red / Red Advance — {red_provider_label()}")
+    if missing:
+        raise RuntimeError("Missing " + ", ".join(missing) + ". Fill local .env and rerun.")
 
 
 ALLOWED_TOPICS = [

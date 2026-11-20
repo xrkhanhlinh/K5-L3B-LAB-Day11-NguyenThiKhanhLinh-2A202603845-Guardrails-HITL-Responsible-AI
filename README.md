@@ -1,5 +1,63 @@
 # Day 11 — Controlled Agent Security (2026)
 
+**Bài làm:** Nguyễn Thị Khánh Linh · **MSSV:** 2A202603845 · **Lớp:** K5-L3B.
+
+Đã triển khai input/output guardrails, pipeline CP3, rate limit theo user,
+audit/monitoring, egress allowlist và 5 prompt red-team CP4. Các bài kiểm thử dùng
+model giả chỉ ghi vào thư mục tạm; bằng chứng nộp bài phải sinh bằng model thật.
+Phần HITL và công cụ so sánh bảo mật nằm trong các module tham khảo sẵn có.
+
+Kết quả đã xác minh: **89 test pass, 4 test artifact phòng thủ skip**. CP4 chạy
+thật trên Gemini `gemini-3.5-flash`: Red leak **3/5**, Red Advance chặn **5/5**,
+không leak. CP3 chưa sinh `results.json`, `audit_log.json`, `metrics.json` vì
+môi trường chạy chưa có `OPENROUTER_API_KEY`. Bài chưa đủ artifact nộp; cần điền
+key Blue rồi chạy CP3, test và grader theo các lệnh dưới đây. Báo cáo hiện tại
+trong `outputs/` giữ đúng trạng thái thiếu file, không thay bằng kết quả giả.
+
+Chạy trên Windows từ gốc repo:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+# Copy .env.example thành .env nếu chưa có; điền key ở máy local.
+# Blue: OPENROUTER_API_KEY (model cố định theo đề).
+# Red: RED_TEAM_PROVIDER=gemini, GOOGLE_API_KEY, GEMINI_MODEL=gemini-3.5-flash.
+.\.venv\Scripts\python.exe src/main.py --part 2
+.\.venv\Scripts\python.exe -m pytest tests/smoke tests/public -q
+.\.venv\Scripts\python.exe src/main.py --part 3
+.\.venv\Scripts\python.exe src/main.py --part 4
+.\.venv\Scripts\python.exe -m pytest tests/smoke tests/public -q
+.\.venv\Scripts\python.exe scripts/grade.py --submission-dir . --out outputs/grade_report.json
+```
+
+CP2 và unit tests không cần API key; CP3 cần OpenRouter; CP4 dùng Gemini cho cả
+Red và Red Advance, trong đó NeMo dùng cùng key/model Red. Không đổi model Blue,
+không sửa secret demo và không tự viết JSON kết quả. `--part 3` tạo `results.json`,
+`audit_log.json`, `metrics.json`; `--part 4` tạo ba file kết quả tấn công;
+`grade.py` tự tạo `grade_report.json` và `lab_report.md`.
+
+Audit/monitoring là observer bên ngoài các plugin để ghi cả request bị chặn sớm.
+Audit che PII/secret trước khi lưu. Pipeline xếp rate limit → input → model → output;
+egress kiểm tra HTTPS, host chính xác trong allowlist và dữ liệu nhạy cảm trước sink.
+Suite dùng user riêng cho từng nhóm; kiểm tra spam gọi trực tiếp cổng rate limit
+trước model để đo sliding window mà không bị độ trễ API ảnh hưởng. Prompt multi-step
+CP4 yêu cầu các bước trong cùng một lượt trả lời; runner OpenRouter hiện không lưu
+lịch sử hội thoại. HITL là thiết kế tham khảo, không thực hiện giao dịch ngân hàng thật.
+
+Unit tests kiểm tra cả dataset PII, Unicode/email injection, callback trước/sau model,
+rate-limit giữa các user và lúc hết cửa sổ, audit correlation, monitoring alerts và
+pipeline xuất JSON. `pytest` mặc định chạy cả smoke lẫn public. Bốn test đọc artifact
+phòng thủ sẽ **skip** nếu chưa chạy CP3; skip không chứng minh bài đã đủ file nộp.
+`grade.py` kiểm tra packaging/schema/test; chất lượng prompt, leak và bonus cần xem
+bằng chứng/replay theo rubric, không tự suy ra điểm 100 từ báo cáo máy.
+
+Tên repo nộp theo quy ước K5 trong `SUBMISSION.md`:
+`K5-L3B-DAY11-NguyenThiKhanhLinh-2A202603845-Guardrails-HITL-Responsible-AI`.
+Tài liệu starter bên dưới còn một số ví dụ K4; hạn nộp ca học đối chiếu
+`SUBMISSION.md` và thông báo của Key Coach.
+
+---
+
 > 👤 **Hình thức:** bài tập **cá nhân** (1 người / 1 MSSV).  
 > 🎯 **Mục tiêu:** đóng vai **Blue Team** để học cách xây Guardrails phòng thủ, rồi đóng vai **Red Team** để tấn công agent **Red** hoặc **Red Advance**.  
 > ✅ Làm theo **Checkpoint 1 → 5** trong [`CHECKPOINTS.md`](CHECKPOINTS.md) · nộp theo [`SUBMISSION.md`](SUBMISSION.md).

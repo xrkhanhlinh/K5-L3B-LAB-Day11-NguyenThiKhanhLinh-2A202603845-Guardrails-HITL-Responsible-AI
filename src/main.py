@@ -63,22 +63,12 @@ async def part3_assignment_suite():
         run_assignment_suite,
     )
 
-    try:
-        plugins = build_production_plugins(use_llm_judge=False)
-        audit, monitor = build_observability()
-        pipeline = {"plugins": plugins, "audit": audit, "monitor": monitor}
-        result = await run_assignment_suite(pipeline)
-        print("Suite finished.")
-        print("Wrote outputs under repo outputs/")
-        return result
-    except NotImplementedError as e:
-        print(
-            "Chưa xong Checkpoint 3 (src/assignment/pipeline.py). "
-            "Hoàn thành rồi chạy lại từ gốc repo:\n"
-            "  python src/main.py --part 3"
-        )
-        print(f"Detail: {e}")
-        return None
+    plugins = build_production_plugins(use_llm_judge=False)
+    audit, monitor = build_observability()
+    pipeline = {"plugins": plugins, "audit": audit, "monitor": monitor}
+    result = await run_assignment_suite(pipeline)
+    print("Suite finished. Wrote results, audit log and metrics under repo outputs/.")
+    return result
 
 
 async def part4_attacks():
@@ -87,23 +77,26 @@ async def part4_attacks():
     print("CHECKPOINT 4: Red + Red Advance")
     print("=" * 60)
 
-    from agents.agent import create_red_agent_default, test_agent
+    from agents.agent import create_red_agent_default
     from agents.guards_agent import create_red_agent_advance
     from attacks.attacks import run_attacks, save_attack_results
 
     red_default, red_default_runner = create_red_agent_default()
-    await test_agent(red_default, red_default_runner)
 
     print("\n--- Attacks on Red ---")
     unsafe_results = await run_attacks(
         red_default, red_default_runner, target_name="red_default"
     )
+    if any(row.get("layer") in {"error", "nemo_error"} for row in unsafe_results):
+        raise RuntimeError("Red provider failed; stopped to preserve free-tier quota. See per-target output.")
 
     print("\n--- Attacks on Red Advance (bonus B2 tối đa +10 nếu LEAKED; chọn 1) ---")
     red_advance, red_advance_runner = create_red_agent_advance()
     guards_results = await run_attacks(
         red_advance, red_advance_runner, target_name="red_advance"
     )
+    if any(row.get("layer") in {"error", "nemo_error"} for row in guards_results):
+        raise RuntimeError("Red Advance provider/rails failed; rerun after fixing quota or configuration.")
 
     save_attack_results(
         unsafe_results=unsafe_results,
@@ -134,10 +127,9 @@ async def part4_attacks():
 
 
 async def main(parts=None):
-    setup_api_key()
-
     if parts is None:
         parts = [2, 3, 4]  # Core: CP2 → CP3 → CP4
+    setup_api_key(parts)
 
     for part in parts:
         if part == 2:
@@ -150,7 +142,7 @@ async def main(parts=None):
             print(f"Unknown part: {part}. Dùng --part 2, 3, hoặc 4.")
 
     print("\n" + "=" * 60)
-    print("Lab 11 complete! Check your results above.")
+    print("Selected checkpoints finished. Run tests and scripts/grade.py before submission.")
     print("=" * 60)
 
 
