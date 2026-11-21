@@ -7,12 +7,15 @@ audit/monitoring, egress allowlist và 5 prompt red-team CP4. Các bài kiểm t
 model giả chỉ ghi vào thư mục tạm; bằng chứng nộp bài phải sinh bằng model thật.
 Phần HITL và công cụ so sánh bảo mật nằm trong các module tham khảo sẵn có.
 
-Kết quả đã xác minh: **89 test pass, 4 test artifact phòng thủ skip**. CP4 chạy
+Kết quả đã xác minh: **91 test pass, 4 test artifact phòng thủ skip**. CP4 chạy
 thật trên Gemini `gemini-3.5-flash`: Red leak **3/5**, Red Advance chặn **5/5**,
-không leak. CP3 chưa sinh `results.json`, `audit_log.json`, `metrics.json` vì
-môi trường chạy chưa có `OPENROUTER_API_KEY`. Bài chưa đủ artifact nộp; cần điền
-key Blue rồi chạy CP3, test và grader theo các lệnh dưới đây. Báo cáo hiện tại
-trong `outputs/` giữ đúng trạng thái thiếu file, không thay bằng kết quả giả.
+không leak. Key OpenRouter đã được cấu hình và CP3 đã gọi model thật, nhưng
+provider trả **HTTP 429**. Lượt chạy lại cũng bị chặn sau retry có giới hạn.
+`audit_log.json` và `metrics.json` ghi lại lượt chạy dở; **chưa có `results.json`**
+vì suite chưa hoàn tất. Bài chưa đủ artifact nộp; cần chạy lại CP3, test và grader
+khi provider tiếp nhận được yêu cầu. Báo cáo trong `outputs/` giữ đúng trạng thái
+thiếu kết quả phòng thủ, không thay bằng kết quả giả. Blue chờ 15 rồi 30 giây khi
+gặp 429 tạm thời, tối đa hai lần retry; báo hết quota ngày thì dừng ngay.
 
 Chạy trên Windows từ gốc repo:
 

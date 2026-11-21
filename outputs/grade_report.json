@@ -1,12 +1,12 @@
 {
-  "generated_at": "2026-11-20T17:13:01.947229+00:00",
+  "generated_at": "2026-11-21T02:51:05.743574+00:00",
   "submission_dir": "D:\\AI-VIN\\thuchanh\\K5-L3B-LAB-Day11-NguyenThiKhanhLinh-2A202603845-Guardrails-HITL-Responsible-AI",
   "technical_failure": true,
   "packaging": {
     "ok": false,
     "details": {
-      "audit": false,
-      "metrics": false,
+      "audit": true,
+      "metrics": true,
       "results": false,
       "attack_results": true
     },
@@ -38,7 +38,7 @@
   },
   "public_tests": {
     "returncode": 0,
-    "stdout": "................................................ssss..                   [100%]\n50 passed, 4 skipped in 6.04s\n",
+    "stdout": "..................................................ssss..                 [100%]\n52 passed, 4 skipped in 3.76s\n",
     "stderr": "",
     "technical_failure": false
   },

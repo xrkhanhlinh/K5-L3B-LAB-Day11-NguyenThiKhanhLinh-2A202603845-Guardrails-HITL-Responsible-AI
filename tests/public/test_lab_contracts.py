@@ -370,3 +370,30 @@ def test_attack_runner_stops_on_provider_error_without_echoing_details(monkeypat
     assert rows[0]["error"] == "RuntimeError"
     assert "credential-detail-that-must-not-be-logged" not in str(rows)
     assert "credential-detail-that-must-not-be-logged" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("daily,expected_calls", [(False, 3), (True, 1)])
+def test_blue_retry_is_bounded_and_stops_for_daily_quota(monkeypatch, daily, expected_calls):
+    import asyncio
+    import httpx
+    from openai import RateLimitError
+    from types import SimpleNamespace
+    from agents.agent import create_blue_agent
+    import core.openai_runtime as module
+
+    agent, runner = create_blue_agent([])
+    calls, delays = [], []
+    def limited(**kwargs):
+        calls.append(kwargs)
+        response = httpx.Response(429, request=httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions"))
+        raise RateLimitError("rate limited", response=response,
+                             body={"message": "free-models-per-day" if daily else "Provider returned error"})
+    async def sleep(delay):
+        delays.append(delay)
+    monkeypatch.setattr(module.asyncio, "sleep", sleep)
+    monkeypatch.setattr(runner, "_client", lambda: SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=limited))))
+    with pytest.raises(RateLimitError):
+        asyncio.run(runner.chat(agent, "What is my account balance?"))
+    assert len(calls) == expected_calls
+    assert delays == ([] if daily else [15, 30])

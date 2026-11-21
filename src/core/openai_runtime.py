@@ -9,6 +9,7 @@ Gemini Red Team dùng Google ADK trong agents/*.py — không đi qua file này.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import asyncio
 import inspect
 from typing import Any, Callable
 
@@ -50,7 +51,10 @@ class OpenAIRunner:
     def _client(self):
         from openai import OpenAI
 
-        return OpenAI(timeout=60, max_retries=1, **(self.client_kwargs or {}))
+        # Blue uses a visible, bounded backoff below instead of short hidden
+        # SDK retries, which tend to hit the same busy free-provider pool.
+        return OpenAI(timeout=60, max_retries=0 if self.provider == "openrouter" else 1,
+                      **(self.client_kwargs or {}))
 
     async def chat(self, agent: OpenAIAgent, user_message: str, *, user_id: str = "student") -> str:
         for hook in self.input_hooks:
@@ -63,14 +67,28 @@ class OpenAIRunner:
             return block_msg
 
         client = self._client()
-        completion = client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": agent.instruction},
-                {"role": "user", "content": user_message},
-            ],
-            temperature=self.temperature,
-        )
+        from openai import RateLimitError
+        for attempt in range(3):
+            try:
+                completion = client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": agent.instruction},
+                        {"role": "user", "content": user_message},
+                    ],
+                    temperature=self.temperature,
+                )
+                break
+            except RateLimitError as exc:
+                body = exc.body if isinstance(exc.body, dict) else {}
+                detail = body.get("error", body)
+                message = str(detail.get("message", "")).lower() if isinstance(detail, dict) else ""
+                exhausted_daily = "per-day" in message or "per_day" in message or "daily" in message
+                if self.provider != "openrouter" or attempt == 2 or exhausted_daily:
+                    raise
+                delay = 15 * (attempt + 1)
+                print(f"[Blue] Provider rate limited; retry in {delay}s ({attempt + 1}/2).")
+                await asyncio.sleep(delay)
         text = (completion.choices[0].message.content or "").strip()
 
         for hook in self.output_hooks:

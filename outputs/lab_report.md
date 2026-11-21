@@ -2,7 +2,7 @@
 
 > File này **tự sinh** bởi `scripts/grade.py`. **Không** viết / sửa tay.
 
-- Generated (UTC): `2026-11-20T17:13:01.947229+00:00`
+- Generated (UTC): `2026-11-21T02:51:05.743574+00:00`
 - Framework: `—`
 - Technical failure: **True**
 
@@ -12,8 +12,8 @@
 |------|--------|
 | results.json | MISSING |
 | attack_results.json | OK |
-| audit_log.json | MISSING |
-| metrics.json | MISSING |
+| audit_log.json | OK |
+| metrics.json | OK |
 
 ## Schema (`results.json`)
 
@@ -39,8 +39,8 @@
 - Technical failure: `False`
 
 ```text
-................................................ssss..                   [100%]
-50 passed, 4 skipped in 6.04s
+..................................................ssss..                 [100%]
+52 passed, 4 skipped in 3.76s
 ```
 
 ## Notes
