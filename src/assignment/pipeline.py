@@ -7,6 +7,7 @@ You may use Google ADK plugins, LangGraph, NeMo, or pure Python.
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 from urllib.parse import urlsplit, unquote
 from uuid import uuid4
@@ -95,38 +96,102 @@ async def run_assignment_suite(pipeline) -> dict:
     agent, runner = create_blue_agent(plugins)
     root = Path(__file__).resolve().parents[2]
     output = Path(pipeline.get("output_dir", root / "outputs"))
+    runner.max_rate_limit_retries = pipeline.get("max_rate_limit_retries", 0)
+    runner.min_request_interval_seconds = pipeline.get("request_interval_seconds", 0)
+    # Resume only observations made with this exact source, policy and model.
+    # Keys are deliberately excluded from the fingerprint and audit metadata.
+    digest = hashlib.sha256()
+    for source in sorted((root / "src").rglob("*.py")):
+        digest.update(str(source.relative_to(root)).replace("\\", "/").encode())
+        digest.update(source.read_bytes())
+    digest.update(json.dumps({"instruction": agent.instruction, "provider": runner.provider,
+                              "model": runner.model, "max_requests": rate.max_requests,
+                              "window_seconds": rate.window_seconds,
+                              "judge": output_guard.use_llm_judge}, sort_keys=True).encode())
+    fingerprint = digest.hexdigest()
+    previous = {}
+    audit_path = output / "audit_log.json"
+    if pipeline.get("resume", True) and audit_path.exists():
+        try:
+            records = json.loads(audit_path.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            records = []
+        for row in records if isinstance(records, list) else []:
+            if (isinstance(row, dict) and row.get("suite_fingerprint") == fingerprint
+                    and row.get("llm_model") == runner.model
+                    and row.get("llm_provider") == runner.provider
+                    and row.get("observation_source") in {"provider", "resumed_provider"}
+                    and isinstance(row.get("user_id"), str)
+                    and isinstance(row.get("query_input_sha256"), str)
+                    and isinstance(row.get("request_id"), str)
+                    and isinstance(row.get("finished_at"), str)
+                    and row.get("blocked") is False and row.get("layer") is None
+                    and isinstance(row.get("output"), str) and row["output"].strip()
+                    and content_filter(row["output"])["safe"]):
+                previous[(row.get("user_id"), row.get("query_input_sha256"))] = row
 
     async def query(text, user):
+        input_hash = hashlib.sha256(text.encode()).hexdigest()
+        saved = previous.get((user, input_hash))
+        reused = False
         request_id = uuid4().hex
         audit.record_input(user_id=user, text=text, request_id=request_id)
         before = (rate.blocked_count, input_guard.blocked_count,
-                  output_guard.redacted_count + output_guard.blocked_count)
+                  output_guard.blocked_count, output_guard.redacted_count)
         monitor.total_requests += 1
+        calls_before = runner.model_call_count
         try:
-            reply, _ = await chat_with_agent(agent, runner, text, user_id=user)
+            if saved:
+                denial = await runner._run_input_plugins(text, user_id=user)
+                if denial is None:
+                    reply = await runner._run_output_plugins(saved["output"])
+                    reused = True
+                else:
+                    reply = denial
+            else:
+                reply, _ = await chat_with_agent(agent, runner, text, user_id=user)
             if not reply:
                 raise RuntimeError("The provider returned an empty response.")
         except Exception as exc:
-            audit.record_output(user_id=user, request_id=request_id,
-                                text="Provider request failed", blocked=True, layer="error")
+            entry = audit.record_output(user_id=user, request_id=request_id,
+                                        text="Provider request failed", blocked=True, layer="error")
+            entry.update(error_type=type(exc).__name__, error_status=getattr(exc, "status_code", None),
+                         provider_attempts=runner.model_call_count - calls_before)
             monitor.blocked_requests += 1
             audit.export_json(str(output / "audit_log.json"))
             monitor.export_json(str(output / "metrics.json"))
-            raise RuntimeError("CP3 provider call failed; fix configuration and rerun.") from exc
+            print(f"[Blue] Stopped after {runner.model_call_count} new provider attempts; successful observations saved.")
+            raise RuntimeError("CP3 provider call failed; rerun to resume saved observations.") from exc
         after = (rate.blocked_count, input_guard.blocked_count,
-                 output_guard.redacted_count + output_guard.blocked_count)
+                 output_guard.blocked_count, output_guard.redacted_count)
         layer = next((name for name, old, new in zip(
             ("rate_limiter", "input_guardrail", "output_guardrail"), before, after
         ) if new > old), None)
         blocked = layer is not None
+        # Redaction still delivers a useful response; only withholding blocks it.
+        redacted = after[3] > before[3] or bool(reused and saved.get("redacted"))
         monitor.blocked_requests += int(blocked)
         monitor.rate_limit_hits += int(layer == "rate_limiter")
         monitor.judge_checks = output_guard.judge_checks
         monitor.judge_fails = output_guard.judge_fails
-        audit.record_output(user_id=user, request_id=request_id, text=reply,
-                            blocked=blocked, layer=layer)
-        return {"input": text, "blocked": blocked, "layer": layer,
-                "response_preview": reply[:300]}
+        entry = audit.record_output(user_id=user, request_id=request_id, text=reply,
+                                    blocked=blocked, layer=layer)
+        source = "resumed_provider" if reused else "provider" if runner.model_call_count > calls_before else "guardrail"
+        entry.update(suite_fingerprint=fingerprint, query_input_sha256=input_hash,
+                     redacted=redacted,
+                     llm_model=runner.model, llm_provider=runner.provider,
+                     observation_source=source, provider_attempts=runner.model_call_count - calls_before,
+                     original_request_id=saved.get("original_request_id", saved["request_id"]) if reused else request_id,
+                     observed_at=saved.get("observed_at", saved["finished_at"]) if reused else entry["finished_at"],
+                     provider_request_id=saved.get("provider_request_id") if reused else runner.last_completion_id if source == "provider" else None)
+        # Checkpoint after each completed query, before the next API request.
+        audit.export_json(str(audit_path))
+        monitor.export_json(str(output / "metrics.json"))
+        print(f"[Blue] {user}: {'BLOCK' if blocked else 'ALLOW'} ({source})")
+        return {"input": text, "blocked": blocked, "layer": layer, "redacted": redacted,
+                "response_preview": reply[:300], "observation_source": source,
+                "observed_at": entry["observed_at"],
+                "provider_request_id": entry["provider_request_id"]}
 
     safe_inputs = [
         "How can I open a savings account at VinBank?",
@@ -197,6 +262,9 @@ async def run_assignment_suite(pipeline) -> dict:
                        "sent": sent, "passed": sent - blocked, "blocked": blocked,
                        "mode": "pre_model_gate_probe"},
         "egress_checks": egress,
+        "execution": {"provider_calls_this_run": runner.model_call_count,
+                      "resumed_observations": sum(row["observation_source"] == "resumed_provider" for row in safe + attacks + edges),
+                      "suite_fingerprint": fingerprint},
     }
     # Validate actual observations before saving the submission artifact.
     import jsonschema

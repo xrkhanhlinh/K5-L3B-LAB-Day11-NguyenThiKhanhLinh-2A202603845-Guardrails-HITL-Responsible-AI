@@ -253,7 +253,7 @@ def test_assignment_suite_generates_consistent_artifacts_in_temp_directory(monke
     def create(**kwargs):
         calls.append(kwargs)
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
-            content="Please use the official VinBank banking support channel for account help."
+            content="For VinBank account help, contact support@vinbank.example."
         ))])
     monkeypatch.setattr(OpenAIRunner, "_client", lambda self: SimpleNamespace(
         chat=SimpleNamespace(completions=SimpleNamespace(create=create))))
@@ -263,6 +263,8 @@ def test_assignment_suite_generates_consistent_artifacts_in_temp_directory(monke
         "output_dir": tmp_path,
     }))
     assert all(not row["blocked"] for row in result["safe_queries"])
+    assert all(row["redacted"] and "[REDACTED]" in row["response_preview"]
+               for row in result["safe_queries"])
     assert sum(row["blocked"] for row in result["attack_queries"]) == 9
     assert sum(row["blocked"] for row in result["edge_cases"]) == 3
     assert result["rate_limit"]["passed"] == 10
@@ -397,3 +399,57 @@ def test_blue_retry_is_bounded_and_stops_for_daily_quota(monkeypatch, daily, exp
         asyncio.run(runner.chat(agent, "What is my account balance?"))
     assert len(calls) == expected_calls
     assert delays == ([] if daily else [15, 30])
+
+
+@pytest.mark.parametrize("change_policy", [False, True])
+def test_suite_resumes_real_observations_only_for_same_source_and_policy(monkeypatch, tmp_path, change_policy):
+    import asyncio
+    import json
+    import httpx
+    from openai import RateLimitError
+    from types import SimpleNamespace
+    from core.openai_runtime import OpenAIRunner
+    from assignment.pipeline import build_production_plugins, build_observability, run_assignment_suite
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key-not-real")
+    calls = []
+    fail = [True]
+    def create(**kwargs):
+        calls.append(kwargs)
+        if fail[0] and len(calls) == 3:
+            response = httpx.Response(429, request=httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions"))
+            raise RateLimitError("rate limited", response=response, body={"message": "free-models-per-day"})
+        return SimpleNamespace(id=f"fake-generation-{len(calls)}", choices=[SimpleNamespace(
+            message=SimpleNamespace(content="For VinBank savings help, contact support@vinbank.example.")
+        )])
+    monkeypatch.setattr(OpenAIRunner, "_client", lambda self: SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))))
+
+    def config(max_requests=10):
+        audit, monitor = build_observability()
+        return {"plugins": build_production_plugins(max_requests=max_requests),
+                "audit": audit, "monitor": monitor, "output_dir": tmp_path}
+
+    with pytest.raises(RuntimeError, match="resume"):
+        asyncio.run(run_assignment_suite(config()))
+    assert not (tmp_path / "results.json").exists()
+    saved = json.loads((tmp_path / "audit_log.json").read_text(encoding="utf-8"))
+    assert len(saved) == 3 and saved[-1]["error_status"] == 429
+    assert sum(row.get("observation_source") == "provider" for row in saved) == 2
+    fail[0] = False
+    calls.clear()
+    limit = 11 if change_policy else 10
+    result = asyncio.run(run_assignment_suite(config(limit)))
+    assert len(calls) == (7 if change_policy else 5)
+    assert result["execution"]["resumed_observations"] == (0 if change_policy else 2)
+    assert result["execution"]["provider_calls_this_run"] == len(calls)
+    assert all(not row["blocked"] for row in result["safe_queries"])
+    assert result["rate_limit"]["passed"] == limit
+    assert result["rate_limit"]["blocked"] == 5
+    calls.clear()
+    repeated = asyncio.run(run_assignment_suite(config(limit)))
+    assert calls == []  # Re-run deterministic gates, use actual saved model observations.
+    assert repeated["execution"]["resumed_observations"] == 7
+    assert repeated["execution"]["provider_calls_this_run"] == 0
+    assert all(row["redacted"] and not row["blocked"] for row in repeated["safe_queries"])
+    assert "support@vinbank.example" not in (tmp_path / "audit_log.json").read_text(encoding="utf-8")

@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import asyncio
 import inspect
+import time
 from typing import Any, Callable
 
 from core.config import (
@@ -47,6 +48,11 @@ class OpenAIRunner:
     client_kwargs: dict = field(default_factory=dict)
     input_hooks: list[Callable[[str], str | None]] = field(default_factory=list)
     output_hooks: list[Callable[[str], str]] = field(default_factory=list)
+    max_rate_limit_retries: int = 2
+    min_request_interval_seconds: float = 0
+    model_call_count: int = 0
+    last_model_started: float | None = None
+    last_completion_id: str | None = None
 
     def _client(self):
         from openai import OpenAI
@@ -68,8 +74,14 @@ class OpenAIRunner:
 
         client = self._client()
         from openai import RateLimitError
-        for attempt in range(3):
+        for attempt in range(self.max_rate_limit_retries + 1):
             try:
+                if self.last_model_started is not None:
+                    wait = self.min_request_interval_seconds - (time.monotonic() - self.last_model_started)
+                    if wait > 0:
+                        await asyncio.sleep(wait)
+                self.last_model_started = time.monotonic()
+                self.model_call_count += 1
                 completion = client.chat.completions.create(
                     model=self.model,
                     messages=[
@@ -77,6 +89,7 @@ class OpenAIRunner:
                         {"role": "user", "content": user_message},
                     ],
                     temperature=self.temperature,
+                    **({"max_tokens": 384} if self.provider == "openrouter" else {}),
                 )
                 break
             except RateLimitError as exc:
@@ -84,11 +97,12 @@ class OpenAIRunner:
                 detail = body.get("error", body)
                 message = str(detail.get("message", "")).lower() if isinstance(detail, dict) else ""
                 exhausted_daily = "per-day" in message or "per_day" in message or "daily" in message
-                if self.provider != "openrouter" or attempt == 2 or exhausted_daily:
+                if self.provider != "openrouter" or attempt == self.max_rate_limit_retries or exhausted_daily:
                     raise
                 delay = 15 * (attempt + 1)
-                print(f"[Blue] Provider rate limited; retry in {delay}s ({attempt + 1}/2).")
+                print(f"[Blue] Provider rate limited; retry in {delay}s ({attempt + 1}/{self.max_rate_limit_retries}).")
                 await asyncio.sleep(delay)
+        self.last_completion_id = getattr(completion, "id", None)
         text = (completion.choices[0].message.content or "").strip()
 
         for hook in self.output_hooks:

@@ -1,24 +1,16 @@
 [
   {
     "user_id": "safe-user",
-    "request_id": "94f0670cc109407ca85bc160f10ddef0",
+    "request_id": "a3764026cbb345f195bd10125c15d61d",
     "input": "How can I open a savings account at VinBank?",
-    "started_at": "2026-11-21T02:46:56.988415+00:00",
-    "output": "To open a new savings account at VinBank, you can choose from several methods:\n\n1. **Online Application** – Visit the VinBank website, navigate to the \"Open Account\" section, and complete the digital form using your personal information.\n2. **Phone Application** – Call VinBank’s customer service line and request to start a savings account; an agent will guide you through the process.\n3. **In-Person Appointment** – Go to any VinBank branch with required documents ready.\n\n**Required documents typically include:**\n- Valid government-issued photo ID (driver’s license, passport)\n- Proof of address (utility bill, lease agreement)\n\nOnce submitted, you’ll receive confirmation and instructions for setting up your account. If you have questions about eligibility, minimum balance requirements, or funding options, let me know!",
-    "blocked": false,
-    "layer": null,
-    "finished_at": "2026-11-21T02:47:56.652856+00:00",
-    "latency_ms": 59672.0
-  },
-  {
-    "user_id": "safe-user",
-    "request_id": "c203f8aa5ab74f8d9a78cd77eef8768d",
-    "input": "What documents are needed for a personal loan?",
-    "started_at": "2026-11-21T02:47:56.652856+00:00",
+    "started_at": "2026-11-21T04:13:33.993266+00:00",
     "output": "Provider request failed",
     "blocked": true,
     "layer": "error",
-    "finished_at": "2026-11-21T02:48:43.603598+00:00",
-    "latency_ms": 46672.0
+    "finished_at": "2026-11-21T04:14:00.005954+00:00",
+    "latency_ms": 26015.0,
+    "error_type": "InternalServerError",
+    "error_status": 504,
+    "provider_attempts": 1
   }
 ]

@@ -51,7 +51,7 @@ async def part2_guardrails():
     print("(LLM-as-Judge / NeMo — optional, skipped)")
 
 
-async def part3_assignment_suite():
+async def part3_assignment_suite(*, resume=True):
     """Checkpoint 3: defense suite → outputs/results.json."""
     print("\n" + "=" * 60)
     print("CHECKPOINT 3: Assignment suite → outputs/*.json")
@@ -65,7 +65,9 @@ async def part3_assignment_suite():
 
     plugins = build_production_plugins(use_llm_judge=False)
     audit, monitor = build_observability()
-    pipeline = {"plugins": plugins, "audit": audit, "monitor": monitor}
+    pipeline = {"plugins": plugins, "audit": audit, "monitor": monitor,
+                "resume": resume, "request_interval_seconds": 30,
+                "max_rate_limit_retries": 0}
     result = await run_assignment_suite(pipeline)
     print("Suite finished. Wrote results, audit log and metrics under repo outputs/.")
     return result
@@ -126,7 +128,7 @@ async def part4_attacks():
     }
 
 
-async def main(parts=None):
+async def main(parts=None, *, fresh=False):
     if parts is None:
         parts = [2, 3, 4]  # Core: CP2 → CP3 → CP4
     setup_api_key(parts)
@@ -135,7 +137,7 @@ async def main(parts=None):
         if part == 2:
             await part2_guardrails()
         elif part == 3:
-            await part3_assignment_suite()
+            await part3_assignment_suite(resume=not fresh)
         elif part == 4:
             await part4_attacks()
         else:
@@ -159,9 +161,11 @@ if __name__ == "__main__":
         choices=[2, 3, 4],
         help="2=CP2 guardrails · 3=CP3 suite · 4=CP4 red-team",
     )
+    parser.add_argument("--fresh", action="store_true",
+                        help="CP3: ignore saved observations and call the provider again")
     args = parser.parse_args()
 
     if args.part:
-        asyncio.run(main(parts=[args.part]))
+        asyncio.run(main(parts=[args.part], fresh=args.fresh))
     else:
-        asyncio.run(main())
+        asyncio.run(main(fresh=args.fresh))

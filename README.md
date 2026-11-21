@@ -7,15 +7,23 @@ audit/monitoring, egress allowlist và 5 prompt red-team CP4. Các bài kiểm t
 model giả chỉ ghi vào thư mục tạm; bằng chứng nộp bài phải sinh bằng model thật.
 Phần HITL và công cụ so sánh bảo mật nằm trong các module tham khảo sẵn có.
 
-Kết quả đã xác minh: **91 test pass, 4 test artifact phòng thủ skip**. CP4 chạy
+Kết quả đã xác minh: **93 test pass, 4 test artifact phòng thủ skip**. CP4 chạy
 thật trên Gemini `gemini-3.5-flash`: Red leak **3/5**, Red Advance chặn **5/5**,
 không leak. Key OpenRouter đã được cấu hình và CP3 đã gọi model thật, nhưng
-provider trả **HTTP 429**. Lượt chạy lại cũng bị chặn sau retry có giới hạn.
+provider nhiều lần trả **HTTP 429/504** nên chưa chạy xong suite.
 `audit_log.json` và `metrics.json` ghi lại lượt chạy dở; **chưa có `results.json`**
 vì suite chưa hoàn tất. Bài chưa đủ artifact nộp; cần chạy lại CP3, test và grader
 khi provider tiếp nhận được yêu cầu. Báo cáo trong `outputs/` giữ đúng trạng thái
-thiếu kết quả phòng thủ, không thay bằng kết quả giả. Blue chờ 15 rồi 30 giây khi
-gặp 429 tạm thời, tối đa hai lần retry; báo hết quota ngày thì dừng ngay.
+thiếu kết quả phòng thủ, không thay bằng kết quả giả.
+
+CP3 lưu audit/metrics sau từng câu, mặc định chạy tiếp các phản hồi thật đã lưu
+khi code, policy và model không đổi. Mỗi phản hồi có nguồn, thời điểm và ID của
+provider; các cổng input/output được kiểm tra lại khi dùng phản hồi đã lưu. Nếu
+provider lỗi, CP3 dừng ngay, không tự retry; các lần gọi mới cách nhau ít nhất
+30 giây và giới hạn 384 token đầu ra để tiết kiệm quota free. Dùng
+`python src/main.py --part 3 --fresh` khi cần gọi lại toàn bộ. Không xóa audit
+nếu muốn chạy tiếp. Output được che dữ liệu vẫn trả cho user và ghi `redacted: true`;
+chỉ từ chối/giữ lại câu trả lời mới tính là request bị chặn.
 
 Chạy trên Windows từ gốc repo:
 
